@@ -1,5 +1,12 @@
 import auth from 'auth0-js';
 
+export const REDIRECT_ON_LOGIN = 'redirect_on_login';
+
+let _idToken = null;
+let _accessToken = null;
+let _expiresAt = null;
+let _scopes = null;
+
 export default class Auth {
   constructor(history) {
     this.userProfile = null;
@@ -16,6 +23,9 @@ export default class Auth {
   }
 
   login = () => {
+    localStorage.setItem(
+      REDIRECT_ON_LOGIN,
+      JSON.stringify(this.history.location));
     this.auth.authorize();
   };
 
@@ -23,30 +33,34 @@ export default class Auth {
     this.auth.parseHash((err, authResult) => {
       if (authResult && authResult.accessToken && authResult.idToken) {
         this.setSession(authResult);
-        this.history.push('/');
+        const redirectLocation = localStorage.getItem(REDIRECT_ON_LOGIN) === undefined
+          ? '/' : JSON.parse(localStorage.getItem(REDIRECT_ON_LOGIN));
+        this.history.push(redirectLocation);
       } else if (err) {
         this.history.push('/');
         alert(`Error: ${err.error}. Check the console for further information.`);
         console.log(err);
       }
+      localStorage.removeItem(REDIRECT_ON_LOGIN);
     });
   };
 
   setSession = (authResult) => {
     // set the time that the access token will expire
-    const expiresAt = JSON.stringify(authResult.expiresIn * 1000 + new Date().getTime());
-    localStorage.setItem('access_token', authResult.accessToken);
-    localStorage.setItem('id_token', authResult.accessToken);
-    localStorage.setItem('expiresAt', expiresAt);
-    localStorage.setItem('scopes', JSON.stringify(this.requestedScopes));
+    _expiresAt = JSON.stringify(authResult.expiresIn * 1000 + new Date().getTime());
+    _scopes = authResult.scope || this.requestedScopes || '';
+
+    _accessToken = authResult.accessToken;
+    _idToken = authResult.idToken;
+
+    this.scheduleTokenRenewal();
   };
 
   isAuthenticated = () => {
-    return new Date().getTime() < JSON.parse(localStorage.getItem("expiresAt"));
+    return new Date().getTime() < _expiresAt;
   };
 
   logout = () => {
-    ['access_token', 'id_token', 'expiresAt', 'scopes'].forEach((item) => localStorage.removeItem(item));
     // this.history.push("/"); // for local logout
     this.auth.logout({
       clientID: process.env.REACT_APP_AUTH0_CLIENT_ID,
@@ -55,7 +69,7 @@ export default class Auth {
   };
 
   getAccessToken = () => {
-    const accessToken = localStorage.getItem('access_token');
+    const accessToken = _accessToken;
     if (!accessToken) {
       throw new Error('Could not get access token.');
     }
@@ -73,7 +87,23 @@ export default class Auth {
   };
 
   userHasScopes = (scopes) => {
-    const grantedScopes = JSON.parse(localStorage.getItem('scopes') || '').split(' ');
+    const grantedScopes = _scopes.split(' ');
     return scopes.every(scope => grantedScopes.includes(scope));
   };
+
+  renewToken(cb) {
+    this.auth.checkSession({}, (err, result) => {
+      if(err) {
+        console.log(`Error ${err.error} - ${err.error_description}.`);
+      } else {
+        this.setSession(result);
+      }
+      if (cb) cb(err, result);
+    });
+  }
+
+  scheduleTokenRenewal() {
+    const delay = _expiresAt - Date.now();
+    if (delay > 0) setTimeout(() => this.renewToken(), delay);
+  }
 }

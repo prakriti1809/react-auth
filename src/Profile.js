@@ -22,10 +22,10 @@ class Profile extends Component {
           Profile
         </h1>
         <h2>{profile.nickname}</h2>
-        <img src={profile.picture} alt='profile picture'/>
-        <p>
+        <img src={profile.picture} style={{maxWidth: 100}} alt='profile'/>
+        <pre>
           {JSON.stringify(profile, null, 2)}
-        </p>
+        </pre>
       </>
 
     );
